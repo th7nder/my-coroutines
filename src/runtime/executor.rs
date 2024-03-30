@@ -38,38 +38,38 @@ impl Executor {
     }
 
     pub fn block_on<F>(&self, future: F)
-        where F: Future<Output = String> + 'static
-        {
-            spawn(future);
-            loop {
-                while let Some(ready_id) = self.pop_ready() {
-                    let mut future = match self.get_future(ready_id) {
-                        Some(f) => f,
-                        None => continue,
-                    };
+    where
+        F: Future<Output = String> + 'static,
+    {
+        spawn(future);
+        loop {
+            while let Some(ready_id) = self.pop_ready() {
+                let mut future = match self.get_future(ready_id) {
+                    Some(f) => f,
+                    None => continue,
+                };
 
-                    let waker = self.get_waker(ready_id);
-                    match future.poll(&waker) {
-                        PollState::Ready(_) => continue,
-                        PollState::NotReady => {
-                            self.insert_task(ready_id, future);
-                            break;
-                        },
+                let waker = self.get_waker(ready_id);
+                match future.poll(&waker) {
+                    PollState::Ready(_) => continue,
+                    PollState::NotReady => {
+                        self.insert_task(ready_id, future);
+                        continue;
                     }
-
-                }
-
-                let task_count = self.task_count();
-                let thread_name = thread::current().name().unwrap_or_default().to_string();
-                if task_count > 0 {
-                    println!("{thread_name}: waiting for {task_count} tasks");
-                    thread::park();
-                } else {
-                    println!("{thread_name}: finished, exiting...");
-                    break;
                 }
             }
+
+            let task_count = self.task_count();
+            let thread_name = thread::current().name().unwrap_or_default().to_string();
+            if task_count > 0 {
+                println!("{thread_name}: waiting for {task_count} tasks");
+                thread::park();
+            } else {
+                println!("{thread_name}: finished, exiting...");
+                break;
+            }
         }
+    }
 }
 
 #[derive(Clone)]

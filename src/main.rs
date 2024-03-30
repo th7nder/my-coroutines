@@ -11,8 +11,10 @@ use runtime::{Executor, Runtime, Waker};
 
 
 fn main() {
+    let now = Instant::now();
     let mut executor = runtime::init();
     executor.block_on(async_main());
+    println!("ELAPSED: {} secs", now.elapsed().as_secs_f32());
 }
 
 // =================================
@@ -59,7 +61,7 @@ impl Future for Coroutine0 {
         match self.state {
                 State0::Start(i) => {
                     // ---- Code you actually wrote ----
-                    let path = format!("/{}/HelloWorld", i * 1000);
+                    let path = format!("/{}/HelloWorld{i}", i * 1000);
 
                     // ---------------------------------
                     let fut1 = Box::new( Http::get(&path));
