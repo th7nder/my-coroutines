@@ -3,7 +3,10 @@ mod future;
 mod http;
 mod runtime;
 use future::{Future,PollState};
+use http::Http;
 use runtime::{Executor, Runtime, Waker};
+
+
 
 
 
@@ -12,16 +15,13 @@ fn main() {
     executor.block_on(async_main());
 }
 
-
 // =================================
 // We rewrite this:
 // =================================
     
-// coroutine fn async_main() {
-//     println!("Program starting!");
-//     let txt = http::Http::get("/600/HelloWorldAsync1").wait;
-//     println!("{txt}");
-//     let txt = http::Http::get("/400/HelloWorldAsync2").wait;
+// coroutine fn request(i: usize) {
+//     let path = format!("/{}/HelloWorld", i * 1000);
+//     let txt = Http::get(&path).wait;
 //     println!("{txt}");
 
 // }
@@ -30,14 +30,13 @@ fn main() {
 // Into this:
 // =================================
 
-fn async_main() -> impl Future<Output=String> {
-    Coroutine0::new()
+fn request(i: usize) -> impl Future<Output=String> {
+    Coroutine0::new(i)
 }
         
 enum State0 {
-    Start,
+    Start(usize),
     Wait1(Box<dyn Future<Output = String>>),
-    Wait2(Box<dyn Future<Output = String>>),
     Resolved,
 }
 
@@ -46,8 +45,8 @@ struct Coroutine0 {
 }
 
 impl Coroutine0 {
-    fn new() -> Self {
-        Self { state: State0::Start }
+    fn new(i: usize) -> Self {
+        Self { state: State0::Start(i) }
     }
 }
 
@@ -58,31 +57,17 @@ impl Future for Coroutine0 {
     fn poll(&mut self, waker: &Waker) -> PollState<Self::Output> {
         loop {
         match self.state {
-                State0::Start => {
+                State0::Start(i) => {
                     // ---- Code you actually wrote ----
-                    println!("Program starting!");
+                    let path = format!("/{}/HelloWorld", i * 1000);
 
                     // ---------------------------------
-                    let fut1 = Box::new( http::Http::get("/600/HelloWorldAsync1"));
+                    let fut1 = Box::new( Http::get(&path));
                     self.state = State0::Wait1(fut1);
                 }
 
                 State0::Wait1(ref mut f1) => {
                     match f1.poll(waker) {
-                        PollState::Ready(txt) => {
-                            // ---- Code you actually wrote ----
-                            println!("{txt}");
-
-                            // ---------------------------------
-                            let fut2 = Box::new( http::Http::get("/400/HelloWorldAsync2"));
-                            self.state = State0::Wait2(fut2);
-                        }
-                        PollState::NotReady => break PollState::NotReady,
-                    }
-                }
-
-                State0::Wait2(ref mut f2) => {
-                    match f2.poll(waker) {
                         PollState::Ready(txt) => {
                             // ---- Code you actually wrote ----
                             println!("{txt}");
@@ -96,6 +81,67 @@ impl Future for Coroutine0 {
                 }
 
                 State0::Resolved => panic!("Polled a resolved future")
+            }
+        }
+    }
+}
+
+
+// =================================
+// We rewrite this:
+// =================================
+    
+// coroutine fn async_main() {
+//     println!("Program starting");
+//     for i in 0..5 {
+//         runtime::spawn(request(i));
+//     }
+
+// }
+
+// =================================
+// Into this:
+// =================================
+
+fn async_main() -> impl Future<Output=String> {
+    Coroutine1::new()
+}
+        
+enum State1 {
+    Start,
+    Resolved,
+}
+
+struct Coroutine1 {
+    state: State1,
+}
+
+impl Coroutine1 {
+    fn new() -> Self {
+        Self { state: State1::Start }
+    }
+}
+
+
+impl Future for Coroutine1 {
+    type Output = String;
+
+    fn poll(&mut self, waker: &Waker) -> PollState<Self::Output> {
+        loop {
+        match self.state {
+                State1::Start => {
+                    // ---- Code you actually wrote ----
+                    println!("Program starting");
+    for i in 0..5 {
+        runtime::spawn(request(i));
+    }
+
+                    // ---------------------------------
+                    self.state = State1::Resolved;
+                    break PollState::Ready(String::new());
+                }
+
+                State1::Resolved => panic!("Polled a resolved future")
             }
         }
     }
