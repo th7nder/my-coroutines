@@ -1,39 +1,29 @@
-use std::sync::OnceLock;
+use std::{cell::{Cell, RefCell}, collections::HashMap, sync::{Arc, Mutex}};
 
-use mio::{Events, Poll, Registry};
+pub use executor::{spawn, Waker, Executor};
+pub use reactor::{*};
 
 use crate::future::Future;
 
-static REGISTRY: OnceLock<Registry> = OnceLock::new();
-pub fn registry() -> &'static Registry {
-    REGISTRY.get().expect("called outside runtime context")
+pub mod executor;
+pub mod reactor;
+
+
+pub fn init() -> Executor {
+    reactor::start();
+    Executor::new()
 }
 
 pub struct Runtime {
-    poll: Poll
+
 }
 
 impl Runtime {
     pub fn new() -> Runtime {
-        let poll = Poll::new().unwrap();
-        let registry = poll.registry().try_clone().unwrap();
-        REGISTRY.set(registry).unwrap();
-        Self {  
-            poll
-        }
+        Runtime {}
     }
-
-    pub fn block_on<F: Future>(&mut self, f: F) {
-        let mut f = f;
-        loop {
-            match f.poll() {
-                crate::future::PollState::NotReady => {
-                    println!("Schedule other tasks");
-                    let mut events = Events::with_capacity(1024);
-                    self.poll.poll(&mut events, None).unwrap();
-                },
-                crate::future::PollState::Ready(_) => break,
-            }
-        }
+    
+    pub(crate) fn block_on(&self, fut: impl Future<Output = String>) {
+        todo!()
     }
 }
