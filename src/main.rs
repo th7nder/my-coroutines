@@ -8,14 +8,30 @@ use runtime::{Executor, Runtime, Waker};
 
 
 
-
-
 fn main() {
     let now = Instant::now();
     let mut executor = runtime::init();
+    let mut handles = vec![];
+
+    for i in 1..8 {
+        let executor = Executor::new();
+        let name = format!("exec-{i}");
+        let h = std::thread::Builder::new().name(name).spawn(move ||{
+            executor.block_on(async_main());
+        }).unwrap();
+        handles.push(h);
+    }
     executor.block_on(async_main());
+    for handle in handles {
+        handle.join().unwrap();
+    }
     println!("ELAPSED: {} secs", now.elapsed().as_secs_f32());
 }
+
+    
+
+
+
 
 // =================================
 // We rewrite this:
@@ -24,6 +40,7 @@ fn main() {
 // coroutine fn request(i: usize) {
 //     let path = format!("/{}/HelloWorld", i * 1000);
 //     let txt = Http::get(&path).wait;
+//     let txt = txt.lines().last().unwrap().or_default();
 //     println!("{txt}");
 
 // }
@@ -61,7 +78,7 @@ impl Future for Coroutine0 {
         match self.state {
                 State0::Start(i) => {
                     // ---- Code you actually wrote ----
-                    let path = format!("/{}/HelloWorld{i}", i * 1000);
+                    let path = format!("/{}/HelloWorld", i * 1000);
 
                     // ---------------------------------
                     let fut1 = Box::new( Http::get(&path));
@@ -72,7 +89,8 @@ impl Future for Coroutine0 {
                     match f1.poll(waker) {
                         PollState::Ready(txt) => {
                             // ---- Code you actually wrote ----
-                            println!("{txt}");
+                            let txt = txt.lines().last().unwrap_or_default();
+    println!("{txt}");
 
                             // ---------------------------------
                             self.state = State0::Resolved;
