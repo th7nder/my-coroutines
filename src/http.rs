@@ -1,6 +1,8 @@
 use std::io::{ErrorKind, Read, Write};
 
-use crate::future::{Future, PollState};
+use mio::{Interest, Token};
+
+use crate::{future::{Future, PollState}, runtime};
 
 
 fn get_req(path: &str) -> String {
@@ -48,7 +50,9 @@ impl Future for HttpGetFuture {
     fn poll(&mut self) -> PollState<Self::Output> {
         if self.stream.is_none() {
             self.write_request();
-            return PollState::NotReady;
+            runtime::registry()
+                .register(self.stream.as_mut().unwrap(), Token(0), Interest::READABLE)
+                .unwrap();
         }
         
         let mut buf = [0u8; 4096];
