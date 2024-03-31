@@ -1,13 +1,11 @@
 use std::{
-    io::{ErrorKind, Read, Write},
-    pin::Pin,
+    future::Future, io::{ErrorKind, Read, Write}, pin::Pin, task::{Context, Poll}
 };
 
 use mio::{Interest, Token};
 
 use crate::{
-    future::{Future, PollState},
-    runtime::{self, reactor, Waker},
+    runtime::{self, reactor, MyWaker},
 };
 
 fn get_req(path: &str) -> String {
@@ -57,14 +55,14 @@ impl HttpGetFuture {
 impl Future for HttpGetFuture {
     type Output = String;
 
-    fn poll(self: Pin<&mut Self>, waker: &Waker) -> PollState<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         let id = self.id;
         let this = self.get_mut();
         if this.stream.is_none() {
             this.write_request();
             let stream = this.stream.as_mut().unwrap();
             reactor().register(stream, Interest::READABLE, id);
-            reactor().set_waker(id, waker);
+            reactor().set_waker(id, cx);
         }
 
         let mut buf = [0u8; 4096];
@@ -75,14 +73,14 @@ impl Future for HttpGetFuture {
                     let str = String::from_utf8_lossy(&this.buffer);
                     // if we were to poll it one moar time, it'd probably fail?!
                     reactor().deregister(this.stream.as_mut().unwrap(), id);
-                    break PollState::Ready(str.to_string());
+                    break Poll::Ready(str.to_string());
                 }
                 Ok(n) => {
                     this.buffer.extend(&buf[..n]);
                 }
                 Err(k) if k.kind() == ErrorKind::WouldBlock => {
-                    reactor().set_waker(id, waker);
-                    break PollState::NotReady;
+                    reactor().set_waker(id, cx);
+                    break Poll::Pending;
                 }
                 Err(k) if k.kind() == ErrorKind::Interrupted => {
                     continue;

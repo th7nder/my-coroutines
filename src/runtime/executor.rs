@@ -1,6 +1,11 @@
-use crate::future::{Future, PollState};
 use std::{
-    cell::{Cell, RefCell}, collections::HashMap, pin::Pin, sync::{Arc, Mutex}, thread::{self, Thread}
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    future::Future,
+    pin::Pin,
+    sync::{Arc, Mutex},
+    task::{Context, Poll, Wake, Waker},
+    thread::{self, Thread},
 };
 
 pub struct Executor;
@@ -18,12 +23,12 @@ impl Executor {
         CURRENT_EXEC.with(|e: &ExecutorCore| e.tasks.borrow_mut().remove(&id))
     }
 
-    pub fn get_waker(&self, id: usize) -> Waker {
-        Waker {
+    pub fn get_waker(&self, id: usize) -> Arc<MyWaker> {
+        Arc::new(MyWaker {
             thread: thread::current(),
             id,
             ready_queue: CURRENT_EXEC.with(|e: &ExecutorCore| e.ready_queue.clone()),
-        }
+        })
     }
 
     pub fn insert_task(&self, id: usize, task: Task) {
@@ -36,7 +41,7 @@ impl Executor {
 
     pub fn block_on<F>(&self, future: F)
     where
-        F: Future<Output = String> + 'static,
+        F: Future<Output = ()> + 'static,
     {
         spawn(future);
         loop {
@@ -46,10 +51,11 @@ impl Executor {
                     None => continue,
                 };
 
-                let waker = self.get_waker(ready_id);
-                match future.as_mut().poll(&waker) {
-                    PollState::Ready(_) => continue,
-                    PollState::NotReady => {
+                let waker: Waker = self.get_waker(ready_id).into();
+                let mut cx = Context::from_waker(&waker);
+                match future.as_mut().poll(&mut cx) {
+                    Poll::Ready(_) => continue,
+                    Poll::Pending => {
                         self.insert_task(ready_id, future);
                         continue;
                     }
@@ -69,14 +75,14 @@ impl Executor {
 }
 
 #[derive(Clone)]
-pub struct Waker {
+pub struct MyWaker {
     thread: Thread,
     id: usize,
     ready_queue: Arc<Mutex<Vec<usize>>>,
 }
 
-impl Waker {
-    pub fn wake(&self) {
+impl Wake for MyWaker {
+    fn wake(self: Arc<Self>) {
         self.ready_queue
             .lock()
             .map(|mut q| q.push(self.id))
@@ -86,7 +92,7 @@ impl Waker {
     }
 }
 
-type Task = Pin<Box<dyn Future<Output = String>>>;
+type Task = Pin<Box<dyn Future<Output = ()>>>;
 thread_local! {
     static CURRENT_EXEC: ExecutorCore = ExecutorCore::default();
 }
@@ -104,7 +110,7 @@ struct ExecutorCore {
 pub fn spawn<F>(future: F)
 // 'static lifetime means it may be able to live through entire program
 where
-    F: Future<Output = String> + 'static,
+    F: Future<Output = ()> + 'static,
 {
     CURRENT_EXEC.with(|e: &ExecutorCore| {
         let id = e.next_id.get();

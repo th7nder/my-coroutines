@@ -4,11 +4,11 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex, OnceLock,
     },
+    task::{Context, Waker}
 };
 
 use mio::{net::TcpStream, Events, Interest, Poll, Registry, Token};
 
-use super::Waker;
 
 type Wakers = Arc<Mutex<HashMap<usize, Waker>>>;
 static REACTOR: OnceLock<Reactor> = OnceLock::new();
@@ -45,11 +45,11 @@ impl Reactor {
         self.registry.register(stream, Token(id), interest).unwrap();
     }
 
-    pub fn set_waker(&self, id: usize, waker: &Waker) {
+    pub fn set_waker(&self, id: usize, cx: &Context) {
         let _ = self
             .wakers
             .lock()
-            .map(|mut w| w.insert(id, waker.clone()))
+            .map(|mut w| w.insert(id, cx.waker().clone()))
             .unwrap();
     }
 
@@ -70,8 +70,9 @@ fn event_loop(mut poll: Poll, wakers: Wakers) {
         poll.poll(&mut events, None).unwrap();
         for event in events.iter() {
             let Token(id) = event.token();
-            if let Some(waker) = wakers.lock().map(|mut w| w.remove(&id)).unwrap() {
-                waker.wake();
+            let wakers = wakers.lock().unwrap();
+            if let Some(waker) = wakers.get(&id) {
+                waker.wake_by_ref();
             }
         }
     }
