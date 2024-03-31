@@ -1,9 +1,6 @@
 use crate::future::{Future, PollState};
 use std::{
-    cell::{Cell, RefCell},
-    collections::HashMap,
-    sync::{Arc, Mutex},
-    thread::{self, Thread},
+    cell::{Cell, RefCell}, collections::HashMap, pin::Pin, sync::{Arc, Mutex}, thread::{self, Thread}
 };
 
 pub struct Executor;
@@ -50,7 +47,7 @@ impl Executor {
                 };
 
                 let waker = self.get_waker(ready_id);
-                match future.poll(&waker) {
+                match future.as_mut().poll(&waker) {
                     PollState::Ready(_) => continue,
                     PollState::NotReady => {
                         self.insert_task(ready_id, future);
@@ -58,7 +55,6 @@ impl Executor {
                     }
                 }
             }
-
             let task_count = self.task_count();
             let thread_name = thread::current().name().unwrap_or_default().to_string();
             if task_count > 0 {
@@ -90,7 +86,7 @@ impl Waker {
     }
 }
 
-type Task = Box<dyn Future<Output = String>>;
+type Task = Pin<Box<dyn Future<Output = String>>>;
 thread_local! {
     static CURRENT_EXEC: ExecutorCore = ExecutorCore::default();
 }
@@ -114,7 +110,7 @@ where
         let id = e.next_id.get();
         e.next_id.set(id + 1);
 
-        e.tasks.borrow_mut().insert(id, Box::new(future));
+        e.tasks.borrow_mut().insert(id, Box::pin(future));
         // it needs to be polled at least once
         e.ready_queue.lock().map(|mut q| q.push(id)).unwrap();
     })

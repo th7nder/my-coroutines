@@ -1,15 +1,22 @@
-use std::io::{ErrorKind, Read, Write};
+use std::{
+    io::{ErrorKind, Read, Write},
+    pin::Pin,
+};
 
 use mio::{Interest, Token};
 
-use crate::{future::{Future, PollState}, runtime::{self, reactor, Waker}};
-
+use crate::{
+    future::{Future, PollState},
+    runtime::{self, reactor, Waker},
+};
 
 fn get_req(path: &str) -> String {
-    format!("GET {path} HTTP/1.1\r\n\
+    format!(
+        "GET {path} HTTP/1.1\r\n\
         Host: localhost\r\n\
         Connection: close\r\n\
-        \r\n")
+        \r\n"
+    )
 }
 
 pub struct Http;
@@ -34,7 +41,7 @@ impl HttpGetFuture {
             stream: None,
             buffer: Vec::new(),
             path: path.into(),
-            id
+            id,
         }
     }
 
@@ -49,35 +56,38 @@ impl HttpGetFuture {
 
 impl Future for HttpGetFuture {
     type Output = String;
-    
-    fn poll(&mut self, waker: &Waker) -> PollState<Self::Output> {
-        if self.stream.is_none() {
-            self.write_request();
-            reactor().register(self.stream.as_mut().unwrap(), Interest::READABLE, self.id);
-            reactor().set_waker(self.id, waker);
+
+    fn poll(self: Pin<&mut Self>, waker: &Waker) -> PollState<Self::Output> {
+        let id = self.id;
+        let this = self.get_mut();
+        if this.stream.is_none() {
+            this.write_request();
+            let stream = this.stream.as_mut().unwrap();
+            reactor().register(stream, Interest::READABLE, id);
+            reactor().set_waker(id, waker);
         }
-        
+
         let mut buf = [0u8; 4096];
-        
+
         loop {
-            match self.stream.as_mut().unwrap().read(&mut buf) {
+            match this.stream.as_mut().unwrap().read(&mut buf) {
                 Ok(0) => {
-                    let str = String::from_utf8_lossy(&self.buffer);
-                    // if we were to poll it one moar time, it'd probably fail?! 
-                    reactor().deregister(self.stream.as_mut().unwrap(), self.id);
-                    break PollState::Ready(str.to_string())
+                    let str = String::from_utf8_lossy(&this.buffer);
+                    // if we were to poll it one moar time, it'd probably fail?!
+                    reactor().deregister(this.stream.as_mut().unwrap(), id);
+                    break PollState::Ready(str.to_string());
                 }
                 Ok(n) => {
-                    self.buffer.extend(&buf[..n]);
-                },
+                    this.buffer.extend(&buf[..n]);
+                }
                 Err(k) if k.kind() == ErrorKind::WouldBlock => {
-                    reactor().set_waker(self.id, waker);
-                    break PollState::NotReady
-                },
+                    reactor().set_waker(id, waker);
+                    break PollState::NotReady;
+                }
                 Err(k) if k.kind() == ErrorKind::Interrupted => {
                     continue;
                 }
-                Err(k) => panic!("{k:?}")
+                Err(k) => panic!("{k:?}"),
             }
         }
     }
